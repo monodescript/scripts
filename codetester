@@ -1,0 +1,157 @@
+local Players=game:GetService("Players")
+local ReplicatedStorage=game:GetService("ReplicatedStorage")
+local UserInputService=game:GetService("UserInputService")
+local playerGui=Players.LocalPlayer:WaitForChild("PlayerGui")
+for _,old in ipairs(playerGui:GetChildren())do
+    if old:IsA("ScreenGui") and (old.Name=="MonodeTester" or old.Name=="StaticsTesterStandalone")then old:Destroy()end
+end
+local C={bg=Color3.fromRGB(20,12,30),panel=Color3.fromRGB(19,14,23),white=Color3.fromRGB(214,104,36),text=Color3.fromRGB(234,226,214),dim=Color3.fromRGB(150,138,152),off=Color3.fromRGB(31,23,37),border=Color3.fromRGB(48,36,54)}
+local BOLD,REG=Enum.Font.GothamBold,Enum.Font.Gotham
+local hubAlive=true
+local connections={}
+local function monodetesterHubConnect(signal,callback)
+    local connection=signal:Connect(function(...)if hubAlive then return callback(...)end end)
+    connections[#connections+1]=connection
+    return connection
+end
+local function monodetesterGetDeviceScale()
+    local camera=workspace.CurrentCamera
+    if not camera then return 1 end
+    local v=camera.ViewportSize
+    local touch=UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+    return math.min(touch and (math.min(v.X,v.Y)<600 and 0.65 or 0.85) or 1,math.max(0.3,(v.X-24)/280),math.max(0.3,(v.Y-24)/184))
+end
+local function monodetesterNew(class, props, children)
+	local o = Instance.new(class)
+	local parent
+	for k, v in pairs(props or {}) do
+		if k == "Parent" then parent = v else o[k] = v end
+	end
+	for _, c in ipairs(children or {}) do c.Parent = o end
+	if parent then o.Parent = parent end
+	return o
+end
+
+local function monodetesterCorner(r) return monodetesterNew("UICorner", { CornerRadius = UDim.new(0, r) }) end
+local function monodetesterStroke(tr)
+	return monodetesterNew("UIStroke", { Color = C.border, Transparency = tr or 0.85, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+end
+
+local function monodetesterLabel(parent, props)
+	local base = {
+		Parent = parent, BackgroundTransparency = 1, Font = REG, TextSize = 12,
+		TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, Text = "",
+	}
+	for k, v in pairs(props) do base[k] = v end
+	return monodetesterNew("TextLabel", base)
+end
+
+
+local gui=monodetesterNew("ScreenGui",{Name="MonodeTester",Parent=playerGui,ResetOnSpawn=false,IgnoreGuiInset=true,DisplayOrder=205,ZIndexBehavior=Enum.ZIndexBehavior.Sibling})
+gui.Destroying:Connect(function()
+    hubAlive=false
+    for _,connection in ipairs(connections)do connection:Disconnect()end
+end)
+local function monodetesterResolveNotifyRemote()
+    if _G.PhiNotifyRemote then return _G.PhiNotifyRemote end
+    local packages = ReplicatedStorage:WaitForChild("Packages", 10)
+    local Net = packages and packages:WaitForChild("Net", 10)
+    if not Net then return nil end
+    local getinfo = debug and (debug.getinfo or debug.info)
+    if getinfo and getconnections then
+        for _, d in ipairs(Net:GetDescendants()) do
+            if d:IsA("RemoteEvent") then
+                local ok, cs = pcall(getconnections, d.OnClientEvent)
+                if ok then
+                    for _, c in ipairs(cs) do
+                        local f, fn = pcall(function() return c.Function end)
+                        if f and type(fn) == "function" then
+                            local i, info = pcall(getinfo, fn, "s")
+                            if i and tostring(type(info) == "table" and (info.short_src or info.source or "") or info):find("NotificationController", 1, true) then
+                                return d
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+
+local testerWindow, testerBox, testerSend
+local monodetesterOpenTester
+monodetesterOpenTester = function()
+    if testerWindow and testerWindow.Parent then testerWindow.Visible=true; return end
+    testerWindow = monodetesterNew("Frame", {Name="MonodeTester", Parent=gui, Size=UDim2.fromOffset(280,184), Position=UDim2.new(0.5,-140,0.5,-92), BackgroundColor3=Color3.fromRGB(255,255,255), BorderSizePixel=0, ZIndex=50}, {monodetesterCorner(12),monodetesterStroke(0.7)})
+    monodetesterNew("UIGradient", {Parent=testerWindow,Rotation=90,Color=ColorSequence.new({
+        ColorSequenceKeypoint.new(0,Color3.fromRGB(20,12,30)),
+        ColorSequenceKeypoint.new(0.7,Color3.fromRGB(8,6,11)),
+        ColorSequenceKeypoint.new(1,Color3.fromRGB(13,9,18)),
+    })})
+    local frameStroke=testerWindow:FindFirstChildOfClass("UIStroke")
+    frameStroke.Color=C.white;frameStroke.Thickness=1.5;frameStroke.Transparency=0.44890698790550232
+    local popupScale = monodetesterNew("UIScale", {Parent=testerWindow, Scale=monodetesterGetDeviceScale()})
+    local head = monodetesterNew("Frame", {Parent=testerWindow, Size=UDim2.new(1,0,0,30), BackgroundTransparency=1, BorderSizePixel=0}, {monodetesterCorner(12)})
+    local testerTitle=monodetesterLabel(head,{Text="MONODE TESTER", Font=BOLD, TextSize=13, Position=UDim2.fromOffset(12,0), Size=UDim2.new(1,-44,1,0), Active=true})
+    head.Active=true
+    local dragInput, dragStart, windowStart
+    local function monodetesterBeginTesterDrag(input)
+        if input.UserInputType~=Enum.UserInputType.MouseButton1 and input.UserInputType~=Enum.UserInputType.Touch then return end
+        dragInput=input;dragStart=input.Position;windowStart=testerWindow.Position
+    end
+    monodetesterHubConnect(head.InputBegan,monodetesterBeginTesterDrag)
+    monodetesterHubConnect(testerTitle.InputBegan,monodetesterBeginTesterDrag)
+    monodetesterHubConnect(UserInputService.InputChanged,function(input)
+        if not dragInput or not testerWindow.Visible then return end
+        local mouse=dragInput.UserInputType==Enum.UserInputType.MouseButton1 and input.UserInputType==Enum.UserInputType.MouseMovement
+        if not mouse and input~=dragInput then return end
+        local delta=input.Position-dragStart
+        testerWindow.Position=UDim2.new(windowStart.X.Scale,windowStart.X.Offset+delta.X,windowStart.Y.Scale,windowStart.Y.Offset+delta.Y)
+    end)
+    monodetesterHubConnect(UserInputService.InputEnded,function(input) if input==dragInput then dragInput=nil end end)
+    local close = monodetesterNew("TextButton", {Parent=head, Size=UDim2.fromOffset(24,24), Position=UDim2.new(1,-28,0.5,-12), BackgroundColor3=C.off, Text="×", TextColor3=C.text, Font=BOLD, TextSize=16, BorderSizePixel=0}, {monodetesterCorner(6)})
+    monodetesterHubConnect(close.Activated,function() testerWindow.Visible=false end)
+    local box = monodetesterNew("TextBox", {Parent=testerWindow, Size=UDim2.new(1,-24,0,32), Position=UDim2.fromOffset(12,42), BackgroundColor3=C.panel, Text="", PlaceholderText="type a word or message...", PlaceholderColor3=C.dim, TextColor3=C.text, ClearTextOnFocus=false, Font=BOLD, TextSize=13, TextXAlignment=Enum.TextXAlignment.Left, BorderSizePixel=0}, {monodetesterCorner(6),monodetesterStroke(0.8),monodetesterNew("UIPadding",{PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8)})})
+    local send = monodetesterNew("TextButton", {Parent=testerWindow, Size=UDim2.new(1,-24,0,32), Position=UDim2.fromOffset(12,86), BackgroundColor3=C.white, Text="SEND", TextColor3=Color3.fromRGB(30,12,4), Font=BOLD, TextSize=12, BorderSizePixel=0}, {monodetesterCorner(6)})
+    local status = monodetesterLabel(testerWindow,{Text="Ready", TextSize=10, TextColor3=C.dim, Position=UDim2.fromOffset(12,126), Size=UDim2.new(1,-24,0,44), TextWrapped=true})
+    local busy=false
+    local function monodetesterFire()
+        if busy then return end
+        local value=box.Text:gsub("^%s+", ""):gsub("%s+$", "")
+        if value=="" then status.Text="Enter a message first."; return end
+        if typeof(firesignal)~="function" then status.Text="This executor does not support firesignal."; return end
+        busy=true;status.Text="Finding announcement remote…"
+        task.spawn(function()
+            local ok,remote=pcall(monodetesterResolveNotifyRemote)
+            if not hubAlive then return end
+            if not ok or not remote then status.Text="Announcement remote unavailable.";busy=false;return end
+            local sent,err=pcall(firesignal,remote.OnClientEvent,value,5.5,"Sounds.Sfx.Blop","Top",2678001507)
+            status.Text=sent and "Announcement sent." or tostring(err)
+            if sent then box.Text="" end
+            busy=false
+        end)
+    end
+    testerBox=box;testerSend=monodetesterFire
+    monodetesterHubConnect(send.Activated,monodetesterFire)
+    monodetesterHubConnect(box.FocusLost,function(enter) if enter then monodetesterFire() end end)
+    monodetesterHubConnect(testerWindow:GetPropertyChangedSignal("Visible"),function() if testerWindow.Visible then popupScale.Scale=monodetesterGetDeviceScale() end end)
+end
+
+local monodetester={Gui=gui}
+function monodetester.Open()if hubAlive then monodetesterOpenTester()end end
+function monodetester.Hide()if testerWindow then testerWindow.Visible=false end end
+function monodetester.Send(text)
+    if not hubAlive then return end
+    monodetesterOpenTester()
+    if text~=nil then testerBox.Text=tostring(text)end
+    testerSend()
+end
+function monodetester.Destroy()gui:Destroy()end
+local environment=getgenv and getgenv() or _G
+environment.MonodeTester=monodetester
+gui.Destroying:Connect(function()if environment.MonodeTester==monodetester then environment.MonodeTester=nil end end)
+monodetester.Open()
+return monodetester
+-- END OF MONODE TESTER
